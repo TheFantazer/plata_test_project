@@ -1,0 +1,7 @@
+.git/
+.idea/
+.gitignore
+.dockerignore
+README.md
+docker-compose.yml
+/app
