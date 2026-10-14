@@ -15,7 +15,10 @@ const (
 	MXN Currency = "MXN"
 )
 
-var ErrInvalidPair = errors.New("invalid currency pair")
+var (
+	ErrInvalidPair   = errors.New("invalid currency pair")
+	ErrQuoteNotFound = errors.New("quote not found")
+)
 
 type Pair struct {
 	Base  Currency

@@ -10,6 +10,8 @@ func NewRouter(handler *Handler) stdhttp.Handler {
 	})
 
 	mux.HandleFunc("POST /v1/quote-updates", handler.CreateQuoteUpdate)
+	mux.HandleFunc("GET /v1/quote-updates/{id}", handler.GetQuoteUpdate)
+	mux.HandleFunc("GET /v1/quotes/latest", handler.GetLatestQuote)
 
 	return mux
 }
