@@ -55,6 +55,7 @@ func TestCreateQuoteUpdate(t *testing.T) {
 			body:       `{"pair":"EUR/EUR"}`,
 			serviceErr: domain.ErrInvalidPair,
 			wantStatus: http.StatusBadRequest,
+			wantBody:   `{"error":"invalid currency pair"}` + "\n",
 			wantCalls:  1,
 			wantPair:   "EUR/EUR",
 		},
@@ -62,22 +63,26 @@ func TestCreateQuoteUpdate(t *testing.T) {
 			name:       "unknown field",
 			body:       `{"pair":"EUR/MXN","extra":true}`,
 			wantStatus: http.StatusBadRequest,
+			wantBody:   `{"error":"invalid JSON body"}` + "\n",
 		},
 		{
 			name:       "second JSON value",
 			body:       `{"pair":"EUR/MXN"}{"pair":"USD/MXN"}`,
 			wantStatus: http.StatusBadRequest,
+			wantBody:   `{"error":"invalid JSON body"}` + "\n",
 		},
 		{
 			name:       "oversized body",
 			body:       `{"pair":"EUR/MXN"}` + strings.Repeat(" ", maxRequestBytes),
 			wantStatus: http.StatusRequestEntityTooLarge,
+			wantBody:   `{"error":"request body too large"}` + "\n",
 		},
 		{
 			name:       "repository failure",
 			body:       `{"pair":"EUR/MXN"}`,
 			serviceErr: errors.New("database unavailable"),
 			wantStatus: http.StatusInternalServerError,
+			wantBody:   `{"error":"internal server error"}` + "\n",
 			wantCalls:  1,
 			wantPair:   "EUR/MXN",
 		},
@@ -94,7 +99,7 @@ func TestCreateQuoteUpdate(t *testing.T) {
 			if response.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", response.Code, tt.wantStatus)
 			}
-			if tt.wantBody != "" && response.Body.String() != tt.wantBody {
+			if response.Body.String() != tt.wantBody {
 				t.Errorf("body = %q, want %q", response.Body.String(), tt.wantBody)
 			}
 			if service.calls != tt.wantCalls {
@@ -103,7 +108,7 @@ func TestCreateQuoteUpdate(t *testing.T) {
 			if service.pair != tt.wantPair {
 				t.Errorf("pair = %q, want %q", service.pair, tt.wantPair)
 			}
-			if tt.wantStatus == http.StatusAccepted && response.Header().Get("Content-Type") != "application/json" {
+			if response.Header().Get("Content-Type") != "application/json" {
 				t.Errorf("Content-Type = %q, want application/json", response.Header().Get("Content-Type"))
 			}
 		})

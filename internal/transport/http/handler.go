@@ -37,6 +37,10 @@ type createQuoteUpdateResponse struct {
 	ID int64 `json:"id"`
 }
 
+type errorResponse struct {
+	Error string `json:"error"`
+}
+
 type quoteUpdateResponse struct {
 	ID           int64               `json:"id"`
 	Pair         string              `json:"pair"`
@@ -66,12 +70,12 @@ func (h *Handler) CreateQuoteUpdate(w stdhttp.ResponseWriter, r *stdhttp.Request
 	id, err := h.service.RequestUpdate(r.Context(), request.Pair)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidPair) {
-			stdhttp.Error(w, err.Error(), stdhttp.StatusBadRequest)
+			writeError(w, stdhttp.StatusBadRequest, err.Error())
 			return
 		}
 
 		log.Printf("create quote update: %v", err)
-		stdhttp.Error(w, "internal server error", stdhttp.StatusInternalServerError)
+		writeError(w, stdhttp.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -83,17 +87,17 @@ func (h *Handler) CreateQuoteUpdate(w stdhttp.ResponseWriter, r *stdhttp.Request
 func writeJSONBodyError(w stdhttp.ResponseWriter, err error) {
 	var sizeError *stdhttp.MaxBytesError
 	if errors.As(err, &sizeError) {
-		stdhttp.Error(w, "request body too large", stdhttp.StatusRequestEntityTooLarge)
+		writeError(w, stdhttp.StatusRequestEntityTooLarge, "request body too large")
 		return
 	}
 
-	stdhttp.Error(w, "invalid JSON body", stdhttp.StatusBadRequest)
+	writeError(w, stdhttp.StatusBadRequest, "invalid JSON body")
 }
 
 func (h *Handler) GetQuoteUpdate(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		stdhttp.Error(w, "invalid update ID", stdhttp.StatusBadRequest)
+		writeError(w, stdhttp.StatusBadRequest, "invalid update ID")
 		return
 	}
 
@@ -119,13 +123,19 @@ func (h *Handler) GetLatestQuote(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 func writeReadError(w stdhttp.ResponseWriter, err error, operation string) {
 	switch {
 	case errors.Is(err, domain.ErrInvalidPair):
-		stdhttp.Error(w, err.Error(), stdhttp.StatusBadRequest)
+		writeError(w, stdhttp.StatusBadRequest, err.Error())
 	case errors.Is(err, domain.ErrQuoteNotFound):
-		stdhttp.Error(w, "quote not found", stdhttp.StatusNotFound)
+		writeError(w, stdhttp.StatusNotFound, "quote not found")
 	default:
 		log.Printf("%s: %v", operation, err)
-		stdhttp.Error(w, "internal server error", stdhttp.StatusInternalServerError)
+		writeError(w, stdhttp.StatusInternalServerError, "internal server error")
 	}
+}
+
+func writeError(w stdhttp.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(errorResponse{Error: message})
 }
 
 func writeQuoteUpdate(w stdhttp.ResponseWriter, update domain.QuoteUpdate) {

@@ -71,12 +71,14 @@ func TestGetQuoteUpdate(t *testing.T) {
 			name:       "invalid ID",
 			path:       "/v1/quote-updates/abc",
 			wantStatus: http.StatusBadRequest,
+			wantBody:   `{"error":"invalid update ID"}` + "\n",
 		},
 		{
 			name:       "missing update",
 			path:       "/v1/quote-updates/42",
 			err:        domain.ErrQuoteNotFound,
 			wantStatus: http.StatusNotFound,
+			wantBody:   `{"error":"quote not found"}` + "\n",
 			wantCalls:  1,
 		},
 	}
@@ -92,8 +94,11 @@ func TestGetQuoteUpdate(t *testing.T) {
 			if response.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", response.Code, tt.wantStatus)
 			}
-			if tt.wantBody != "" && response.Body.String() != tt.wantBody {
+			if response.Body.String() != tt.wantBody {
 				t.Errorf("body = %q, want %q", response.Body.String(), tt.wantBody)
+			}
+			if response.Header().Get("Content-Type") != "application/json" {
+				t.Errorf("Content-Type = %q, want application/json", response.Header().Get("Content-Type"))
 			}
 			if service.getByIDCall != tt.wantCalls {
 				t.Errorf("GetUpdate calls = %d, want %d", service.getByIDCall, tt.wantCalls)
@@ -133,6 +138,7 @@ func TestGetLatestQuote(t *testing.T) {
 			path:       "/v1/quotes/latest?pair=EUR%2FMXN",
 			err:        domain.ErrQuoteNotFound,
 			wantStatus: http.StatusNotFound,
+			wantBody:   `{"error":"quote not found"}` + "\n",
 			wantPair:   "EUR/MXN",
 		},
 		{
@@ -140,6 +146,7 @@ func TestGetLatestQuote(t *testing.T) {
 			path:       "/v1/quotes/latest?pair=EUR%2FEUR",
 			err:        domain.ErrInvalidPair,
 			wantStatus: http.StatusBadRequest,
+			wantBody:   `{"error":"invalid currency pair"}` + "\n",
 			wantPair:   "EUR/EUR",
 		},
 	}
@@ -155,14 +162,73 @@ func TestGetLatestQuote(t *testing.T) {
 			if response.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", response.Code, tt.wantStatus)
 			}
-			if tt.wantBody != "" && response.Body.String() != tt.wantBody {
+			if response.Body.String() != tt.wantBody {
 				t.Errorf("body = %q, want %q", response.Body.String(), tt.wantBody)
+			}
+			if response.Header().Get("Content-Type") != "application/json" {
+				t.Errorf("Content-Type = %q, want application/json", response.Header().Get("Content-Type"))
 			}
 			if service.latestCall != 1 {
 				t.Errorf("GetLatest calls = %d, want 1", service.latestCall)
 			}
 			if service.pair != tt.wantPair {
 				t.Errorf("pair passed to service = %q, want %q", service.pair, tt.wantPair)
+			}
+		})
+	}
+}
+
+func TestRouterErrorsJSON(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantStatus int
+		wantBody   string
+		wantAllow  string
+	}{
+		{
+			name:       "unknown route",
+			method:     http.MethodGet,
+			path:       "/missing",
+			wantStatus: http.StatusNotFound,
+			wantBody:   `{"error":"route not found"}` + "\n",
+		},
+		{
+			name:       "wrong method on create route",
+			method:     http.MethodGet,
+			path:       "/v1/quote-updates",
+			wantStatus: http.StatusMethodNotAllowed,
+			wantBody:   `{"error":"method not allowed"}` + "\n",
+			wantAllow:  "POST",
+		},
+		{
+			name:       "wrong method on read route",
+			method:     http.MethodPost,
+			path:       "/v1/quote-updates/42",
+			wantStatus: http.StatusMethodNotAllowed,
+			wantBody:   `{"error":"method not allowed"}` + "\n",
+			wantAllow:  "GET, HEAD",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+			NewRouter(NewHandler(&readQuoteService{})).ServeHTTP(response, request)
+
+			if response.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", response.Code, tt.wantStatus)
+			}
+			if response.Body.String() != tt.wantBody {
+				t.Errorf("body = %q, want %q", response.Body.String(), tt.wantBody)
+			}
+			if response.Header().Get("Content-Type") != "application/json" {
+				t.Errorf("Content-Type = %q, want application/json", response.Header().Get("Content-Type"))
+			}
+			if response.Header().Get("Allow") != tt.wantAllow {
+				t.Errorf("Allow = %q, want %q", response.Header().Get("Allow"), tt.wantAllow)
 			}
 		})
 	}
