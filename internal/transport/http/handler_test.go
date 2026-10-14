@@ -24,6 +24,14 @@ func (s *stubQuoteService) RequestUpdate(_ context.Context, pair string) (int64,
 	return s.id, s.err
 }
 
+func (s *stubQuoteService) GetUpdate(_ context.Context, _ int64) (domain.QuoteUpdate, error) {
+	return domain.QuoteUpdate{}, nil
+}
+
+func (s *stubQuoteService) GetLatest(_ context.Context, _ string) (domain.QuoteUpdate, error) {
+	return domain.QuoteUpdate{}, nil
+}
+
 func TestCreateQuoteUpdate(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -59,6 +67,11 @@ func TestCreateQuoteUpdate(t *testing.T) {
 			name:       "second JSON value",
 			body:       `{"pair":"EUR/MXN"}{"pair":"USD/MXN"}`,
 			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "oversized body",
+			body:       `{"pair":"EUR/MXN"}` + strings.Repeat(" ", maxRequestBytes),
+			wantStatus: http.StatusRequestEntityTooLarge,
 		},
 		{
 			name:       "repository failure",
