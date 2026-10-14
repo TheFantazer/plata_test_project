@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/TheFantazer/plata_test_project/internal/provider/frankfurter"
 	"github.com/TheFantazer/plata_test_project/internal/repository/postgres"
 	"github.com/TheFantazer/plata_test_project/internal/service"
 	httptransport "github.com/TheFantazer/plata_test_project/internal/transport/http"
@@ -49,8 +50,29 @@ func run() error {
 	}
 
 	repository := postgres.NewRepository(pool)
+
+	requeueCtx, cancelRequeue := context.WithTimeout(context.Background(), 5*time.Second)
+	requeued, err := repository.RequeueProcessing(requeueCtx)
+	cancelRequeue()
+	if err != nil {
+		return fmt.Errorf("recover interrupted quote updates: %w", err)
+	}
+	if requeued > 0 {
+		log.Printf("requeued %d interrupted quote updates", requeued)
+	}
+
 	quoteService := service.NewQuoteService(repository)
 	handler := httptransport.NewHandler(quoteService)
+
+	rateProvider, err := frankfurter.NewClient(
+		&http.Client{Timeout: 10 * time.Second},
+		"https://api.frankfurter.dev",
+	)
+	if err != nil {
+		return fmt.Errorf("create rate provider: %w", err)
+	}
+
+	worker := service.NewWorker(repository, rateProvider)
 
 	server := &http.Server{
 		Addr:              addr,
@@ -66,28 +88,57 @@ func run() error {
 	defer stop()
 
 	serverError := make(chan error, 1)
+	workerError := make(chan error, 1)
 
 	go func() {
 		log.Printf("HTTP server listening on %s", addr)
 		serverError <- server.ListenAndServe()
 	}()
 
+	go func() {
+		workerError <- worker.Run(ctx)
+	}()
+
+	var runError error
+	workerFinished := false
+
 	select {
 	case <-ctx.Done():
+
 	case err := <-serverError:
 		if !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("HTTP server: %w", err)
+			runError = fmt.Errorf("HTTP server: %w", err)
+		}
+
+	case err := <-workerError:
+		workerFinished = true
+		if err != nil {
+			runError = fmt.Errorf("quote worker: %w", err)
+		} else if ctx.Err() == nil {
+			runError = errors.New("quote worker stopped unexpectedly")
 		}
 	}
+
+	stop()
 
 	shutdownCtx, cancelShutdown := context.WithTimeout(
 		context.Background(),
 		5*time.Second,
 	)
-	defer cancelShutdown()
+	shutdownError := server.Shutdown(shutdownCtx)
+	cancelShutdown()
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("shut down HTTP server: %w", err)
+	if !workerFinished {
+		if err := <-workerError; err != nil && runError == nil {
+			runError = fmt.Errorf("quote worker: %w", err)
+		}
+	}
+
+	if runError != nil {
+		return runError
+	}
+	if shutdownError != nil {
+		return fmt.Errorf("shut down HTTP server: %w", shutdownError)
 	}
 
 	return nil
